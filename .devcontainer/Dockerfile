@@ -26,9 +26,10 @@ RUN apt-get update && apt-get install -y \
     curl \
     bash-completion \
     python3 \
-    python3-pip \
-    python3-venv \
     python3-dev \
+    python3-pip \
+    python3-tk \  
+    python3-venv \
  && groupadd --gid $USER_GID $USERNAME \
  && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
  && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/$USERNAME \
