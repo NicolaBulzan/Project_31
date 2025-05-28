@@ -21,7 +21,7 @@ ELDERLY_AGE_THRESHOLD = 85
 DUPLICATE_TIMEFRAME_HOURS = 1
 CHILD_AGE_THRESHOLD = 16
 
-ANOMALY_SCORE_THRESHOLD = 3.0 # Define the threshold for separating cleaned/anomalous data
+ANOMALY_SCORE_THRESHOLD = 3.0 #
 
 # --- Helper Functions ---
 def parse_timestamp(timestamp_str):
@@ -317,10 +317,10 @@ if __name__ == "__main__":
                 plt.text(median_score*1.05, max_ylim*0.8, f'Median: {median_score:.2f}', color='g')
             
             plt.tight_layout()
-            plt.show()
+            plt.savefig("anomaly_plot.png")
         except Exception as e:
             print(f"\nError generating plot: {e}")
             print("Please ensure matplotlib and seaborn are installed ('pip install matplotlib seaborn').")
-    elif not error_messages:
+    else:
         print("No anomaly scores to plot as no anomalies were detected (or only critical errors occurred).")
 
