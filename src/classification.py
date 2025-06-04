@@ -21,7 +21,6 @@ def plot_confusion_matrix_image(cm, classes, filename="confusion_matrix.png"):
 
 def load_and_prepare_data(csv_path):
     df = pd.read_csv(csv_path)
-    # Ensure 'sex_v' and 'IMC' columns exist
     if 'sex_v' not in df.columns:
         raise ValueError("Column 'sex_v' not found in the CSV.")
     if 'IMC' not in df.columns:
@@ -31,7 +30,6 @@ def load_and_prepare_data(csv_path):
     label_encoder = LabelEncoder()
     df["IMC_encoded"] = label_encoder.fit_transform(df["IMC"])
     
-    # Features for prediction
     features = ["age_v", "sex_v", "greutate", "inaltime"]
     missing_features = [f for f in features if f not in df.columns]
     if missing_features:
@@ -42,25 +40,24 @@ def load_and_prepare_data(csv_path):
     return X, y, label_encoder
 
 def train_model(X, y):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    model = RandomForestClassifier(random_state=42, n_estimators=100) # Added n_estimators
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    model = RandomForestClassifier(random_state=42, n_estimators=100)
     model.fit(X_train, y_train)
     return model, X_test, y_test
 
 def evaluate_model(model, X_test, y_test, label_encoder):
     y_pred = model.predict(X_test)
-    report = classification_report(y_test, y_pred, target_names=label_encoder.classes_, zero_division=0)
-    matrix = confusion_matrix(y_test, y_pred)
+    all_labels = list(range(len(label_encoder.classes_)))
+    report = classification_report(
+        y_test, y_pred,
+        labels=all_labels,
+        target_names=label_encoder.classes_,
+        zero_division=0
+    )
+    matrix = confusion_matrix(y_test, y_pred, labels=all_labels)
     return report, matrix, label_encoder.classes_
 
 def run_imc_classification(csv_path):
-    """
-    Main function to run IMC classification.
-    Returns:
-        report (str): Classification report.
-        matrix_image_path (str): Path to the saved confusion matrix image.
-        error (str or None): Error message if any, None otherwise.
-    """
     try:
         X, y, label_encoder = load_and_prepare_data(csv_path)
         if X.empty or y.empty:
@@ -69,7 +66,6 @@ def run_imc_classification(csv_path):
         model, X_test, y_test = train_model(X, y)
         report, matrix, classes = evaluate_model(model, X_test, y_test, label_encoder)
         
-        # Ensure the 'plots' directory exists
         output_dir = "plots"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -90,10 +86,7 @@ def run_imc_classification(csv_path):
         return None, None, f"An unexpected error occurred: {e}"
 
 if __name__ == "__main__":
-    # Example usage:
-    # Replace 'your_data.csv' with the actual path to your data file
-    # This part is for standalone testing of this script
-    test_csv_path = 'doctor31_cazuri.csv' # Or use a specific cleaned/anomalous file
+    test_csv_path = 'doctor31_cazuri.csv'
     if os.path.exists(test_csv_path):
         print(f"--- Running IMC Classification on: {test_csv_path} ---")
         report_str, cm_img_path, error_msg = run_imc_classification(test_csv_path)
@@ -105,4 +98,3 @@ if __name__ == "__main__":
             print(f"\nConfusion Matrix image saved to: {cm_img_path}")
     else:
         print(f"Test file '{test_csv_path}' not found. Skipping standalone IMC classification test.")
-

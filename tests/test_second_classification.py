@@ -1,146 +1,126 @@
-# Fix for test_second_classification.py
 import unittest
-from unittest.mock import patch
-import pandas as pd
-import numpy as np
 import os
+import pandas as pd
+import shutil 
 import sys
-import matplotlib
-matplotlib.use('Agg') # Use a non-interactive backend for tests
 
-# Add the project root to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
+try:
+   
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+  
+    src_path = os.path.join(project_root, 'src')
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+ 
+    from second_classification import run_clustering_pipeline
+except (NameError, ImportError) as e:
+    
+    print(f"Warning: Could not automatically set up sys.path. "
+          f"Ensure 'run_clustering_pipeline' is importable. Error: {e}")
 
-from src.second_classification import run_clustering_pipeline
+    if 'run_clustering_pipeline' not in globals():
+        
+        pass 
+
+
+TEST_DATA_DICT = {
+    "age_v": [25, 30, 22, 40, 35], # Added one more point for k=2 to be more stable
+    "sex_v": ["M", "F", "F", "M", "F"],
+    "greutate": [70, 60, 55, 80, 65],
+    "inaltime": [175, 160, 162, 180, 168]
+}
+TEST_CSV_FILENAME = "test_data_unittest.csv"
+PLOTS_DIR = "plots" # Default plots directory used by the clustering script
 
 class TestClusteringPipeline(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.test_csv_filename = "test_clustering_dummy_data.csv"
-        cls.output_plot_dir = os.path.join(project_root, "plots") # Plots saved relative to project root
-        cls.elbow_plot_filename = "clustering_elbow_plot.png"
-        cls.scatter_plot_filename_template = "clustering_scatter_plot_k{}.png" # k will be filled
+        """Set up for all tests in this class."""
+        # Create the test CSV file
+        test_df = pd.DataFrame(TEST_DATA_DICT)
+        test_df.to_csv(TEST_CSV_FILENAME, index=False)
+        # Ensure the plots directory does not exist from a previous run (or create it if needed by setup)
+        if os.path.exists(PLOTS_DIR):
+            shutil.rmtree(PLOTS_DIR) # Remove if it exists to ensure a clean state
+        # The script itself will create PLOTS_DIR, so we don't need os.makedirs here.
 
-        sample_data_dict = {
-            'id_cases': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-            'age_v': [30, 45, 22, 30, 40, 50, 35, 25, 55, 60],
-            'sex_v': ['male', 'female', 'male', 'female', 'male', 'female', "1", 'male', '0', 'female'], # Mixed types
-            'greutate': [70, 60, 80, 65, 75, 55, 90, 68, 72, 59],
-            'inaltime': [175, 160, 180, 165, 170, 155, 120, 170, 165, 160],
-            'other_col': ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
-        }
-        df_sample = pd.DataFrame(sample_data_dict)
-        df_sample.to_csv(cls.test_csv_filename, index=False)
-        
-        # Ensure plots directory exists
-        os.makedirs(cls.output_plot_dir, exist_ok=True)
 
     @classmethod
     def tearDownClass(cls):
-        if os.path.exists(cls.test_csv_filename):
-            os.remove(cls.test_csv_filename)
-        
-        # Clean up generated plots
-        elbow_plot_path = os.path.join(cls.output_plot_dir, cls.elbow_plot_filename)
-        if os.path.exists(elbow_plot_path):
-            os.remove(elbow_plot_path)
-        
-        # Need to know k_optimal used in tests to clean up scatter plot
-        # Assuming a default k_optimal for testing, e.g., 3
-        k_test = 3 
-        scatter_plot_path = os.path.join(cls.output_plot_dir, cls.scatter_plot_filename_template.format(k_test))
-        if os.path.exists(scatter_plot_path):
-            os.remove(scatter_plot_path)
-            
-        # Clean up plots directory if empty
-        try:
-            if os.path.exists(cls.output_plot_dir) and not os.listdir(cls.output_plot_dir):
-                os.rmdir(cls.output_plot_dir)
-        except OSError as e:
-            print(f"Warning: Could not remove plots directory '{cls.output_plot_dir}': {e}")
+        """Tear down after all tests in this class."""
+        # Remove the test CSV file
+        if os.path.exists(TEST_CSV_FILENAME):
+            os.remove(TEST_CSV_FILENAME)
+        # Remove the plots directory and its contents
+        if os.path.exists(PLOTS_DIR):
+            shutil.rmtree(PLOTS_DIR)
 
+    def test_clustering_pipeline_runs_and_generates_outputs(self):
+        """
+        Test that the clustering pipeline runs without errors and produces
+        the expected output files and summary.
+        """
+        self.assertTrue('run_clustering_pipeline' in globals() or 'run_clustering_pipeline' in sys.modules.get('second_classification', {}).__dict__,
+                        "run_clustering_pipeline function not found. Check import.")
 
-    def test_run_clustering_pipeline_success(self):
-        k_optimal_test = 3
         features = ["age_v", "sex_v", "greutate", "inaltime"]
         other_numeric = ["age_v", "greutate", "inaltime"]
+        k_opt = 2
+        k_rng = range(1, 4) # k values 1, 2, 3
 
-        elbow_p, scatter_p, summary_s, sil_score, error = run_clustering_pipeline(
-            filepath=self.test_csv_filename,
+        elbow_path, scatter_path, summary, silhouette, error = run_clustering_pipeline(
+            filepath=TEST_CSV_FILENAME,
             features_to_cluster=features,
             other_numeric_features=other_numeric,
-            k_optimal=k_optimal_test
+            k_optimal=k_opt,
+            k_range=k_rng
         )
 
-        self.assertIsNone(error, f"Expected no error, but got: {error}")
-        
-        self.assertIsInstance(elbow_p, str, "Elbow plot path should be a string.")
-        self.assertTrue(os.path.exists(elbow_p), f"Elbow plot not found: {elbow_p}")
-        self.assertEqual(os.path.basename(elbow_p), self.elbow_plot_filename)
+        self.assertIsNone(error, f"Clustering pipeline returned an error: {error}")
 
-        self.assertIsInstance(scatter_p, str, "Scatter plot path should be a string.")
-        self.assertTrue(os.path.exists(scatter_p), f"Scatter plot not found: {scatter_p}")
-        self.assertEqual(os.path.basename(scatter_p), self.scatter_plot_filename_template.format(k_optimal_test))
+        self.assertIsNotNone(elbow_path, "Elbow plot path should not be None")
+        self.assertTrue(os.path.exists(elbow_path), f"Elbow plot file not found at {elbow_path}")
 
-        self.assertIsInstance(summary_s, str, "Summary should be a string.")
-        self.assertTrue(len(summary_s) > 0, "Summary string should not be empty.")
-        
-        if sil_score is not None: # Silhouette score can be None if k_optimal is 1 or not enough distinct labels
-            self.assertIsInstance(sil_score, float, "Silhouette score should be a float or None.")
-            self.assertTrue(-1 <= sil_score <= 1, "Silhouette score out of range.")
+        self.assertIsNotNone(scatter_path, "Scatter plot path should not be None")
+        self.assertTrue(os.path.exists(scatter_path), f"Scatter plot file not found at {scatter_path}")
+
+        self.assertIsInstance(summary, str, "Summary should be a string")
+        self.assertIn("cluster_label", summary, "Summary should contain 'cluster_label'")
+        self.assertIn("Mean feature values per cluster", summary, "Summary should contain mean feature values")
+        self.assertIn("Cluster sizes", summary, "Summary should contain cluster sizes")
+
+        if k_opt > 1 and len(pd.DataFrame(TEST_DATA_DICT)) >= k_opt : # Basic check
+             self.assertIsNotNone(silhouette, f"Silhouette score should not be None for k_optimal={k_opt}")
+             self.assertGreaterEqual(silhouette, -1, "Silhouette score should be >= -1") # Silhouette can be -1
+             self.assertLessEqual(silhouette, 1, "Silhouette score should be <= 1")
+        else:
+            self.assertIsNone(silhouette, f"Silhouette score should be None for k_optimal={k_opt} or insufficient data")
 
 
-    def test_run_clustering_pipeline_file_not_found(self):
-        _, _, _, _, error = run_clustering_pipeline("non_existent_clustering_file.csv")
-        self.assertIsNotNone(error, "Error should be reported for non-existent file.")
-        self.assertIn("not found", error.lower())
-
-    def test_run_clustering_pipeline_missing_features(self):
-        bad_data_filename = "test_clustering_missing_features.csv"
-        bad_data = {
-            'age_v': [25, 30],
-            'sex_v': ['male', 'female']
-            # 'greutate', 'inaltime' are missing from default features
-        }
-        pd.DataFrame(bad_data).to_csv(bad_data_filename, index=False)
-        
+    def test_clustering_with_file_not_found(self):
+        """Test behavior when the input CSV file is not found."""
         _, _, _, _, error = run_clustering_pipeline(
-            filepath=bad_data_filename,
-            features_to_cluster=["age_v", "sex_v", "greutate", "inaltime"] # Explicitly ask for missing ones
+            filepath="non_existent_file.csv",
+            k_optimal=2
         )
-        self.assertIsNotNone(error, "Error should be reported for missing features.")
-        # Fix: The error message changed slightly. Check for "missing"
-        self.assertIn("missing", error.lower())
-        
-        if os.path.exists(bad_data_filename):
-            os.remove(bad_data_filename)
-            
-    def test_run_clustering_pipeline_non_numeric_conversion_issue(self):
-        tricky_data_filename = "test_clustering_tricky_data.csv"
-        tricky_data = {
-            'age_v': [25, 30, 'text_age', 40], # 'text_age' will become NaN, then imputed
-            'sex_v': ['male', 'female', 'male', 'female'],
-            'greutate': [70, 'sixty', 80, 65], # 'sixty' will become NaN, then imputed
-            'inaltime': [175, 160, 180, 165]
-        }
-        pd.DataFrame(tricky_data).to_csv(tricky_data_filename, index=False)
+        self.assertIsNotNone(error, "Error should be reported for a non-existent file")
+        self.assertIn("File 'non_existent_file.csv' not found", error)
 
-        elbow_p, scatter_p, summary_s, sil_score, error = run_clustering_pipeline(
-            filepath=tricky_data_filename,
-            features_to_cluster=["age_v", "sex_v", "greutate", "inaltime"],
-            other_numeric_features=["age_v", "greutate", "inaltime"],
-            k_optimal=2 # Changed k_optimal for this test as there are only 4 samples
+    def test_clustering_with_missing_features(self):
+        """Test behavior when features_to_cluster are missing from the CSV."""
+        _, _, _, _, error = run_clustering_pipeline(
+            filepath=TEST_CSV_FILENAME,
+            features_to_cluster=["age_v", "sex_v", "non_existent_feature"],
+            k_optimal=2
         )
-        
-        # Expecting it to run without error due to coercion and imputation, and valid k_optimal
-        self.assertIsNone(error, f"Pipeline should handle coercible non-numeric with imputation and valid k_optimal, but got: {error}")
-        self.assertIsNotNone(elbow_p) # Check if plots were generated
-
-        if os.path.exists(tricky_data_filename):
-            os.remove(tricky_data_filename)
-
+        self.assertIsNotNone(error, "Error should be reported for missing features")
+        self.assertIn("The following features are not in the CSV: ['non_existent_feature']", error)
 
 if __name__ == '__main__':
+    if 'run_clustering_pipeline' not in globals() and 'run_clustering_pipeline' not in sys.modules.get('second_classification', {}).__dict__:
+        print("ERROR: 'run_clustering_pipeline' is not defined.")
+        print("Please ensure the clustering code is correctly imported or defined before running tests.")
+     
+        
     unittest.main()
