@@ -20,3 +20,22 @@ uml
 
 # Ignore any virtual environments
 venv/
+
+
+# PyInstaller files
+build/
+dist/
+*.spec
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# OS-specific files
+.DS_Store
+Thumbs.db

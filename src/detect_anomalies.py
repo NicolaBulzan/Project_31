@@ -21,7 +21,7 @@ ELDERLY_AGE_THRESHOLD = 85
 DUPLICATE_TIMEFRAME_HOURS = 1
 CHILD_AGE_THRESHOLD = 16
 
-ANOMALY_SCORE_THRESHOLD = 3.0 #
+ANOMALY_SCORE_THRESHOLD = 3.0
 
 # --- Helper Functions ---
 def parse_timestamp(timestamp_str):
@@ -35,19 +35,47 @@ def parse_timestamp(timestamp_str):
         except ValueError:
             return None
 
+def get_clinical_description(rule, value, details):
+    """Translates a technical rule into a doctor-friendly description."""
+    if rule == "Impossible Age":
+        return f"Alert: Invalid Age Entry. The recorded age ({value}) is outside the plausible 0-120 year range."
+    if rule == "Implausible Adult Weight":
+        return f"Flag for Review: Unusually Low Weight. {details.replace('for age', 'The patient is')}."
+    if rule == "Very Low Child Weight":
+        return f"Flag for Review: Very Low Child Weight. {details}."
+    if rule == "Invalid Weight (<=0kg)":
+        return f"Alert: Invalid Weight Entry. The weight is recorded as {value} kg."
+    if rule == "Unlikely Height":
+        return f"Flag for Review: Unlikely Height. The recorded height ({value} cm) is outside the typical {MIN_HEIGHT_CM}-{MAX_HEIGHT_CM}cm range."
+    if rule == "BMI Incompatible with Life":
+        return f"Alert: Extreme BMI Value. The calculated BMI ({value}) is outside the viable {MIN_BMI}-{MAX_BMI} range."
+    if rule == "Suspicious Elderly Obesity":
+        return f"Flag for Review: Potential Obesity in Elderly. {details}."
+    if rule == "Potential Duplicate Cluster":
+        return f"Alert: Possible Duplicate Record. This entry is very similar to other patient records recorded at nearly the same time. Please verify."
+    if "Missing" in rule:
+        return f"Flag for Review: Missing Data. The value for '{rule.replace('Missing ', '')}' is missing."
+    return f"Flag: '{rule}' with value '{value}'. Details: {details}"
+
+
 def add_anomaly(case_scores_dict, case_id, column_affected, rule_description, points, actual_value, details=""):
-    if case_id not in case_scores_dict:
-        case_scores_dict[case_id] = {'total_score': 0, 'violations': []}
+    # Ensure case_id is a string for consistent keying
+    case_id_str = str(case_id)
+    if case_id_str not in case_scores_dict:
+        case_scores_dict[case_id_str] = {'total_score': 0, 'violations': []}
+    
+    clinical_desc = get_clinical_description(rule_description, actual_value, details)
     
     violation_details = {
         "column": column_affected,
         "rule": rule_description,
         "value": str(actual_value),
         "details": details,
-        "points": points
+        "points": points,
+        "clinical_description": clinical_desc
     }
-    case_scores_dict[case_id]['violations'].append(violation_details)
-    case_scores_dict[case_id]['total_score'] += points
+    case_scores_dict[case_id_str]['violations'].append(violation_details)
+    case_scores_dict[case_id_str]['total_score'] += points
 
 # --- Main Detection Function ---
 def detect_anomalies_from_file(file_path):
@@ -132,13 +160,14 @@ def detect_anomalies_from_file(file_path):
     df['parsed_data1'] = df['data1'].apply(parse_timestamp)
     df_valid_for_duplicates = df.dropna(subset=['id_cases', 'age_v', 'greutate', 'inaltime', 'parsed_data1']).copy()
     
-    df_valid_for_duplicates['duplicate_key_tuple'] = df_valid_for_duplicates.apply(
-        lambda x: (int(x['age_v']), float(x['greutate']), float(x['inaltime']))
-        if pd.notna(x['age_v']) and pd.notna(x['greutate']) and pd.notna(x['inaltime'])
-        else None,
-        axis=1
-    )
-    df_valid_for_duplicates.dropna(subset=['duplicate_key_tuple'], inplace=True)
+    if not df_valid_for_duplicates.empty:
+        df_valid_for_duplicates['duplicate_key_tuple'] = df_valid_for_duplicates.apply(
+            lambda x: (int(x['age_v']), float(x['greutate']), float(x['inaltime']))
+            if pd.notna(x['age_v']) and pd.notna(x['greutate']) and pd.notna(x['inaltime'])
+            else None,
+            axis=1
+        )
+        df_valid_for_duplicates.dropna(subset=['duplicate_key_tuple'], inplace=True)
 
     duplicate_relationships = {} 
     if not df_valid_for_duplicates.empty:
@@ -161,44 +190,34 @@ def detect_anomalies_from_file(file_path):
 
     for case_id_in_duplicate_cluster, partners in duplicate_relationships.items():
         if partners:
-            original_row_for_key_series = df[df['id_cases'] == case_id_in_duplicate_cluster]
-            if not original_row_for_key_series.empty:
-                original_row_for_key = original_row_for_key_series.iloc[0]
-                key_details_for_msg = f"A/W/H: {original_row_for_key.get('age_v', 'N/A')}/{original_row_for_key.get('greutate', 'N/A')}/{original_row_for_key.get('inaltime', 'N/A')}"
-                details_str = f"Part of a duplicate cluster. Matches cases: {', '.join(map(str, sorted(list(partners))))}. Key: {key_details_for_msg}."
-                
-                already_flagged_for_duplicate = False
-                if case_id_in_duplicate_cluster in case_anomaly_data:
-                    for viol in case_anomaly_data[case_id_in_duplicate_cluster]['violations']:
-                        if viol['rule'] == "Potential Duplicate Cluster":
-                            already_flagged_for_duplicate = True
-                            break
-                if not already_flagged_for_duplicate:
-                    add_anomaly(case_anomaly_data, case_id_in_duplicate_cluster, 
-                                "Multiple Columns", "Potential Duplicate Cluster", 
-                                POINTS_MEDIUM, "Matches other records", details_str)
-            # else:
-                # This case_id from duplicate_relationships was not in the original df? Should not happen if id_cases is consistent.
-                # print(f"Warning: Case ID {case_id_in_duplicate_cluster} from duplicate check not found in original DataFrame for details.")
-
+            details_str = f"Matches cases: {', '.join(map(str, sorted(list(partners))))}."
+            already_flagged_for_duplicate = False
+            if str(case_id_in_duplicate_cluster) in case_anomaly_data:
+                for viol in case_anomaly_data[str(case_id_in_duplicate_cluster)]['violations']:
+                    if viol['rule'] == "Potential Duplicate Cluster":
+                        already_flagged_for_duplicate = True
+                        break
+            if not already_flagged_for_duplicate:
+                add_anomaly(case_anomaly_data, case_id_in_duplicate_cluster, 
+                            "Multiple Columns", "Potential Duplicate Cluster", 
+                            POINTS_MEDIUM, "Matches other records", details_str)
 
     final_anomaly_messages = []
     all_total_scores = []
     if not case_anomaly_data and not error_messages:
-        final_anomaly_messages.append("No anomalies detected based on the current rules.")
+        final_anomaly_messages.append("No data quality flags found based on the current rules.")
     elif error_messages:
-        return error_messages, [], case_anomaly_data # Return case_anomaly_data even on file error for potential partial processing
+        return error_messages, [], case_anomaly_data
     else:
         sorted_cases = sorted(case_anomaly_data.items(), key=lambda item: item[1]['total_score'], reverse=True)
         for case_id, data in sorted_cases:
             if data['violations']:
                 all_total_scores.append(data['total_score'])
-                header = f"--- Anomalies for Case ID {case_id} (Total Anomaly Score: {data['total_score']:.1f}) ---"
+                header = f"--- Case ID {case_id} (Total Score: {data['total_score']:.1f}) ---"
                 final_anomaly_messages.append(header)
                 for viol in data['violations']:
                     final_anomaly_messages.append(
-                        f"  - Rule: '{viol['rule']}' on '{viol['column']}' (Value: {viol['value']}) "
-                        f"[+{viol['points']} pts]. Details: {viol['details']}"
+                        f"  - {viol['clinical_description']}"
                     )
                 final_anomaly_messages.append("") 
             
@@ -206,41 +225,17 @@ def detect_anomalies_from_file(file_path):
 
 
 def save_filtered_datasets(original_df, case_anomaly_data_dict, threshold, input_file_name):
-    """
-    Filters the original DataFrame based on anomaly scores and saves two CSVs:
-    one for cleaned data and one for anomalous data.
-    """
     ids_to_exclude = set()
     for case_id, data in case_anomaly_data_dict.items():
         if data['total_score'] >= threshold:
-            ids_to_exclude.add(case_id)
+            ids_to_exclude.add(str(case_id))
 
-    # Ensure id_cases is the correct type for comparison if it was read as float/object
     if 'id_cases' in original_df.columns:
-        try:
-            # Attempt to convert to int, then to str for robust comparison if IDs are mixed types
-            original_df['id_cases_str_temp'] = original_df['id_cases'].astype(float).astype(int).astype(str)
-            ids_to_exclude_str = {str(int(float(id_val))) for id_val in ids_to_exclude}
-            
-            cleaned_df = original_df[~original_df['id_cases_str_temp'].isin(ids_to_exclude_str)].copy()
-            anomalous_df = original_df[original_df['id_cases_str_temp'].isin(ids_to_exclude_str)].copy()
-            
-            cleaned_df.drop(columns=['id_cases_str_temp'], inplace=True, errors='ignore')
-            anomalous_df.drop(columns=['id_cases_str_temp'], inplace=True, errors='ignore')
-
-        except Exception as e:
-            print(f"Warning: Could not robustly filter by id_cases due to type issues: {e}. Falling back to index-based filtering if id_cases is not reliable.")
-            # Fallback or more robust type handling might be needed if id_cases are not clean integers
-            # For now, we'll assume id_cases can be matched or this will raise an error to be fixed.
-            # A simple approach if id_cases is problematic is to work with DataFrame indices,
-            # but that requires case_anomaly_data to be keyed by index.
-            # Let's proceed assuming id_cases is mostly usable as a key.
-            cleaned_df = original_df[~original_df['id_cases'].isin(ids_to_exclude)]
-            anomalous_df = original_df[original_df['id_cases'].isin(ids_to_exclude)]
-
-    else: # Should not happen if initial column check passes
-        print("Error: 'id_cases' column not found for filtering.")
-        return
+        # Ensure we are comparing strings to strings
+        cleaned_df = original_df[~original_df['id_cases'].astype(str).isin(ids_to_exclude)].copy()
+        anomalous_df = original_df[original_df['id_cases'].astype(str).isin(ids_to_exclude)].copy()
+    else: 
+        return None, None
 
     base_name = os.path.splitext(input_file_name)[0]
     cleaned_file_name = f"{base_name}_cleaned.csv"
@@ -248,79 +243,15 @@ def save_filtered_datasets(original_df, case_anomaly_data_dict, threshold, input
 
     try:
         cleaned_df.to_csv(cleaned_file_name, index=False)
-        print(f"\nSuccessfully saved cleaned data to: {cleaned_file_name} ({len(cleaned_df)} rows)")
+        print(f"Successfully saved cleaned data to: {cleaned_file_name} ({len(cleaned_df)} rows)")
     except Exception as e:
-        print(f"\nError saving cleaned data CSV: {e}")
+        print(f"Error saving cleaned data CSV: {e}")
+        cleaned_file_name = None
 
     try:
         anomalous_df.to_csv(anomalous_file_name, index=False)
         print(f"Successfully saved rule-based anomalous data to: {anomalous_file_name} ({len(anomalous_df)} rows)")
     except Exception as e:
         print(f"Error saving anomalous data CSV: {e}")
-
-
-if __name__ == "__main__":
-    input_csv_path = 'doctor31_cazuri.csv' 
-    
-    print(f"--- Detecting anomalies in: {input_csv_path} ---")
-    anomaly_messages, anomaly_scores, case_data_for_filtering = detect_anomalies_from_file(input_csv_path)
-    
-    if anomaly_messages:
-        # Check if the first message is a critical error message
-        is_critical_error = any(msg.startswith("CRITICAL ERROR:") for msg in anomaly_messages)
         
-        if not is_critical_error:
-            print(f"\n--- Anomaly Report ({len(anomaly_messages)} lines generated): ---")
-            for msg in anomaly_messages:
-                print(msg)
-            
-            # Save filtered datasets only if no critical file/column errors occurred
-            # Re-load original df here for the standalone script context
-            # In an integrated app, you might pass the df from GUI to detection, then to saving.
-            try:
-                original_df_for_saving = pd.read_csv(input_csv_path)
-                save_filtered_datasets(original_df_for_saving, case_data_for_filtering, ANOMALY_SCORE_THRESHOLD, os.path.basename(input_csv_path))
-            except Exception as e:
-                print(f"\nError loading original DataFrame for saving filtered datasets: {e}")
-
-        else: # Is a critical error
-             print("\n--- Critical Errors Encountered: ---")
-             for msg in anomaly_messages:
-                print(msg)
-             print("\nFiltered CSV files will not be generated due to critical errors.")
-
-
-    if anomaly_scores: # Only plot if scores were generated (i.e., no critical file errors and some anomalies found)
-        print(f"\n--- Plotting Anomaly Score Distribution ({len(anomaly_scores)} cases with anomalies) ---")
-        try:
-            plt.figure(figsize=(12, 7))
-            n_bins = 'auto' 
-            
-            sns.histplot(anomaly_scores, bins=n_bins, kde=True, color='skyblue')
-            plt.title('Distribution of Total Anomaly Scores for Cases with Anomalies', fontsize=16)
-            plt.xlabel('Total Anomaly Score', fontsize=14)
-            plt.ylabel('Number of Cases', fontsize=14)
-            plt.grid(axis='y', linestyle='--', alpha=0.7)
-            plt.xticks(fontsize=10)
-            plt.yticks(fontsize=10)
-            
-            if anomaly_scores: # Ensure list is not empty for mean/median calculation
-                mean_score = sum(anomaly_scores) / len(anomaly_scores)
-                # For median, list must be sorted and non-empty
-                sorted_scores = sorted(anomaly_scores)
-                median_score = sorted_scores[len(sorted_scores) // 2]
-                
-                plt.axvline(mean_score, color='r', linestyle='dashed', linewidth=1)
-                plt.axvline(median_score, color='g', linestyle='dashed', linewidth=1)
-                min_ylim, max_ylim = plt.ylim()
-                plt.text(mean_score*1.05, max_ylim*0.9, f'Mean: {mean_score:.2f}', color='r')
-                plt.text(median_score*1.05, max_ylim*0.8, f'Median: {median_score:.2f}', color='g')
-            
-            plt.tight_layout()
-            plt.savefig("anomaly_plot.png")
-        except Exception as e:
-            print(f"\nError generating plot: {e}")
-            print("Please ensure matplotlib and seaborn are installed ('pip install matplotlib seaborn').")
-    else:
-        print("No anomaly scores to plot as no anomalies were detected (or only critical errors occurred).")
-
+    return cleaned_file_name

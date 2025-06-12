@@ -28,73 +28,79 @@ def load_and_prepare_data(csv_path):
         
     df["sex_v"] = LabelEncoder().fit_transform(df["sex_v"])
     label_encoder = LabelEncoder()
+    # Handle potential missing values in IMC column before encoding
+    df["IMC"].fillna("Unknown", inplace=True)
     df["IMC_encoded"] = label_encoder.fit_transform(df["IMC"])
     
     features = ["age_v", "sex_v", "greutate", "inaltime"]
     missing_features = [f for f in features if f not in df.columns]
     if missing_features:
         raise ValueError(f"Missing feature columns in CSV: {', '.join(missing_features)}")
-        
+    
+    # Handle missing values in features
+    for feature in features:
+        if df[feature].isnull().any():
+            df[feature].fillna(df[feature].median(), inplace=True)
+            
     X = df[features]
     y = df["IMC_encoded"]
     return X, y, label_encoder
 
 def train_model(X, y):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    # Stratify can fail if a class has only one member.
+    try:
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    except ValueError:
+        print("Stratify failed, performing normal split.")
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        
     model = RandomForestClassifier(random_state=42, n_estimators=100)
     model.fit(X_train, y_train)
     return model, X_test, y_test
 
 def evaluate_model(model, X_test, y_test, label_encoder):
     y_pred = model.predict(X_test)
-    all_labels = list(range(len(label_encoder.classes_)))
+    
+    # Ensure all possible classes are in the report, even if not in y_test/y_pred
+    known_labels_encoded = list(range(len(label_encoder.classes_)))
+    present_labels = sorted(list(set(y_test) | set(y_pred)))
+    target_names = label_encoder.inverse_transform(present_labels)
+
     report = classification_report(
         y_test, y_pred,
-        labels=all_labels,
-        target_names=label_encoder.classes_,
+        labels=present_labels,
+        target_names=target_names,
         zero_division=0
     )
-    matrix = confusion_matrix(y_test, y_pred, labels=all_labels)
+    matrix = confusion_matrix(y_test, y_pred, labels=known_labels_encoded)
     return report, matrix, label_encoder.classes_
 
 def run_imc_classification(csv_path):
+    """
+    Main function to run classification.
+    Returns a consistent tuple of 7 values: (report, matrix, error_msg, model, X_test, y_test, label_encoder)
+    On error, object values will be None.
+    """
     try:
         X, y, label_encoder = load_and_prepare_data(csv_path)
         if X.empty or y.empty:
-            return None, None, "No data available for training after preparation."
+            error_msg = "No data available for training after preparation."
+            return None, None, error_msg, None, None, None, None
             
         model, X_test, y_test = train_model(X, y)
         report, matrix, classes = evaluate_model(model, X_test, y_test, label_encoder)
         
-        output_dir = "plots"
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        matrix_image_path = os.path.join(output_dir, "imc_confusion_matrix.png")
-
-        plot_confusion_matrix_image(matrix, classes, matrix_image_path)
+        # We don't need the confusion matrix image for the new GUI, so we can comment this out
+        # output_dir = "plots"
+        # if not os.path.exists(output_dir):
+        #     os.makedirs(output_dir)
+        # matrix_image_path = os.path.join(output_dir, "imc_confusion_matrix.png")
+        # plot_confusion_matrix_image(matrix, classes, matrix_image_path)
         
-        return report, matrix_image_path, None
-    except ValueError as ve:
-        print(f"ValueError in IMC classification: {ve}")
-        return None, None, str(ve)
-    except FileNotFoundError:
-        return None, None, f"File not found: {csv_path}"
+        return report, matrix, None, model, X_test, y_test, label_encoder
+
     except Exception as e:
-        print(f"An unexpected error occurred in IMC classification: {e}")
+        print(f"An error occurred in IMC classification: {e}")
         import traceback
         traceback.print_exc()
-        return None, None, f"An unexpected error occurred: {e}"
-
-if __name__ == "__main__":
-    test_csv_path = 'doctor31_cazuri.csv'
-    if os.path.exists(test_csv_path):
-        print(f"--- Running IMC Classification on: {test_csv_path} ---")
-        report_str, cm_img_path, error_msg = run_imc_classification(test_csv_path)
-        if error_msg:
-            print(f"Error: {error_msg}")
-        else:
-            print("\nClassification Report:")
-            print(report_str)
-            print(f"\nConfusion Matrix image saved to: {cm_img_path}")
-    else:
-        print(f"Test file '{test_csv_path}' not found. Skipping standalone IMC classification test.")
+        return None, None, f"An unexpected error occurred: {e}", None, None, None, None
