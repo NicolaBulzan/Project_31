@@ -113,7 +113,6 @@ def update_patient_profile_text(case_id):
 
     case_row = case_row.iloc[0]
 
-    # CORRECTED: Removed asterisks from all section headers
     profile_text += "Data Quality Review:\n"
     anomaly_info = case_anomaly_data.get(case_id)
     if anomaly_info and anomaly_info['violations']:
@@ -204,8 +203,6 @@ def run_full_analysis():
         messagebox.showerror("Error", "Please load a patient dataset first.")
         return
 
-    # To avoid confusion, analysis should run on the data as it was at load time.
-    # The clear action is now primarily for the "Clear All" button.
     current_filepath = selected_file_path_var.get()
 
     global original_df, cleaned_df, clustered_df, case_anomaly_data, all_case_ids, classification_predictions, cohort_names
@@ -300,7 +297,6 @@ def create_main_application_window():
     selected_file_path_var = tk.StringVar(value="No dataset loaded.")
     ttk.Label(top_controls_frame, textvariable=selected_file_path_var, relief="sunken", anchor="w").pack(side="left", fill="x", expand=True, padx=10)
 
-    # CORRECTED: New frame for centered buttons on a new row
     analysis_controls_frame = ttk.Frame(root_window)
     analysis_controls_frame.pack(pady=(5,10))
 

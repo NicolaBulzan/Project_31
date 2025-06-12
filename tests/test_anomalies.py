@@ -3,7 +3,6 @@ import pandas as pd
 import os
 import sys
 
-# Add project root to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 src_path = os.path.join(project_root, 'src')
 if src_path not in sys.path:

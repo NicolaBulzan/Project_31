@@ -95,7 +95,7 @@ def analyze_clusters_summary_for_clustering(df_with_labels, features_for_cluster
     for i, summary in cluster_summary.iterrows():
         name = cohort_names.get(i, f"Cluster {i}")
         size = cluster_sizes.get(i, 0)
-        # CORRECTED: Removed asterisks from the name line
+        
         summary_str += f"{name} ({size} patients)\n"
         
         feature_map = {
