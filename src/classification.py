@@ -28,7 +28,7 @@ def load_and_prepare_data(csv_path):
         
     df["sex_v"] = LabelEncoder().fit_transform(df["sex_v"])
     label_encoder = LabelEncoder()
-    # Handle potential missing values in IMC column before encoding
+    
     df["IMC"].fillna("Unknown", inplace=True)
     df["IMC_encoded"] = label_encoder.fit_transform(df["IMC"])
     
@@ -37,7 +37,6 @@ def load_and_prepare_data(csv_path):
     if missing_features:
         raise ValueError(f"Missing feature columns in CSV: {', '.join(missing_features)}")
     
-    # Handle missing values in features
     for feature in features:
         if df[feature].isnull().any():
             df[feature].fillna(df[feature].median(), inplace=True)
@@ -47,7 +46,7 @@ def load_and_prepare_data(csv_path):
     return X, y, label_encoder
 
 def train_model(X, y):
-    # Stratify can fail if a class has only one member.
+    # Stratify can fail if a class has only one member
     try:
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     except ValueError:
@@ -89,13 +88,6 @@ def run_imc_classification(csv_path):
             
         model, X_test, y_test = train_model(X, y)
         report, matrix, classes = evaluate_model(model, X_test, y_test, label_encoder)
-        
-        # We don't need the confusion matrix image for the new GUI, so we can comment this out
-        # output_dir = "plots"
-        # if not os.path.exists(output_dir):
-        #     os.makedirs(output_dir)
-        # matrix_image_path = os.path.join(output_dir, "imc_confusion_matrix.png")
-        # plot_confusion_matrix_image(matrix, classes, matrix_image_path)
         
         return report, matrix, None, model, X_test, y_test, label_encoder
 

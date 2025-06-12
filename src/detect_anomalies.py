@@ -231,7 +231,7 @@ def save_filtered_datasets(original_df, case_anomaly_data_dict, threshold, input
             ids_to_exclude.add(str(case_id))
 
     if 'id_cases' in original_df.columns:
-        # Ensure we are comparing strings to strings
+        
         cleaned_df = original_df[~original_df['id_cases'].astype(str).isin(ids_to_exclude)].copy()
         anomalous_df = original_df[original_df['id_cases'].astype(str).isin(ids_to_exclude)].copy()
     else: 

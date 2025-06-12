@@ -62,7 +62,7 @@ class TestClusteringPipeline(unittest.TestCase):
     def test_clustering_with_file_not_found(self):
         _, _, _, _, error = run_clustering_pipeline(filepath="non_existent_file.csv", k_optimal=2)
         self.assertIsNotNone(error)
-        # CORRECTED: Made assertion more general to accept different OS-level error messages
+       
         self.assertTrue("not found" in error.lower() or "no such file or directory" in error.lower())
 
     def test_clustering_with_missing_features(self):
